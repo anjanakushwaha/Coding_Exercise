@@ -6,7 +6,7 @@ The project analyses Sambamba coverage output, identifies genes that do not meet
 
 ## Click Live Results Dashboard
 
-**[View the NGS Coverage Results Dashboard](https://anjanakushwaha.github.io/InterviewCHU/)**
+**[View the NGS Coverage Results Dashboard](https://anjanakushwaha.github.io/Coding_Exercise/)**
 
 The dashboard displays the pre-generated analysis results, including:
 - Gene-level coverage summary
