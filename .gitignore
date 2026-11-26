@@ -1,0 +1,6 @@
+.DS_Store
+__pycache__/
+*.pyc
+coverage.log
+NGS148_34_139558_CB_CMCMD_S33_R1_001.sambamba_output.txt
+panel_genes.txt

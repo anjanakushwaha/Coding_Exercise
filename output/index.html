@@ -1,0 +1,272 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NGS Coverage Results</title>
+<style>
+:root {
+  font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+  color: #172033;
+  background: #f4f6fa;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.wrap { max-width: 1180px; margin: 32px auto; padding: 0 20px; }
+header { margin-bottom: 24px; }
+h1 { font-size: 28px; margin: 0 0 6px; }
+p { color: #647084; margin: 0; }
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+.card, section {
+  background: white;
+  border: 1px solid #e1e6ef;
+  border-radius: 12px;
+}
+.card { padding: 16px; }
+.card small { display: block; color: #69758a; margin-bottom: 8px; }
+.value { font-size: 25px; font-weight: 750; overflow-wrap: anywhere; }
+section { margin: 16px 0; overflow: hidden; }
+.section-head {
+  padding: 16px 18px;
+  border-bottom: 1px solid #e9edf3;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+h2 { font-size: 18px; margin: 0; }
+.search {
+  padding: 8px 10px;
+  border: 1px solid #ccd4e0;
+  border-radius: 8px;
+  min-width: 190px;
+}
+.table-wrap { overflow: auto; max-height: 430px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; white-space: nowrap; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #edf0f5; }
+th { position: sticky; top: 0; background: #f8f9fc; color: #526078; }
+.status { font-weight: 700; border-radius: 20px; padding: 3px 8px; background: #eef1f6; }
+.FAIL { color: #a52b2b; background: #fff0ef; }
+.PASS { color: #176b43; background: #eaf7ef; }
+.MISSING, .UNASSESSABLE { color: #8a5a08; background: #fff6df; }
+.empty { padding: 24px; color: #718096; text-align: center; }
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 16px;
+  margin: 0;
+  font: 13px/1.6 ui-monospace, monospace;
+}
+.hint { font-size: 12px; margin-top: 16px; color: #778196; }
+@media(max-width:600px) {
+  .wrap { margin: 20px auto; padding: 0 12px; }
+  h1 { font-size: 23px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>NGS Coverage Results</h1>
+  <p>Review sample coverage, gene-level status and failing exon coordinates.</p>
+</header>
+
+<div class="cards">
+  <div class="card"><small>Sample</small><div class="value" id="sample">Loading…</div></div>
+  <div class="card"><small>Genes in report</small><div class="value" id="genes">—</div></div>
+  <div class="card"><small>Genes failing</small><div class="value" id="failed">—</div></div>
+  <div class="card"><small>Missing genes</small><div class="value" id="missing">—</div></div>
+  <div class="card"><small>Failing exons</small><div class="value" id="exons">—</div></div>
+</div>
+
+<section>
+  <div class="section-head">
+    <h2>Gene summary</h2>
+    <input class="search" id="geneSearch" placeholder="Filter genes…">
+  </div>
+  <div class="table-wrap" id="geneTable">
+    <div class="empty">Loading gene results…</div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Failing exons</h2>
+    <input class="search" id="exonSearch" placeholder="Filter gene or coordinate…">
+  </div>
+  <div class="table-wrap" id="exonTable">
+    <div class="empty">Loading failing exon results…</div>
+  </div>
+</section>
+
+<section>
+  <div class="section-head"><h2>Analysis summary</h2></div>
+  <div id="summaryText"><div class="empty">Loading summary…</div></div>
+</section>
+
+<p class="hint">
+  Results are loaded automatically from this website's published report files.
+  This dashboard displays the supplied results and does not independently validate clinical findings.
+</p>
+
+</div>
+
+<script>
+const data = { genes: [], exons: [], summary: "" };
+
+function parseTSV(text) {
+  const lines = text.replace(/^\uFEFF/, "").trim().split(/\r?\n/);
+  if (!lines.length || !lines[0]) return [];
+
+  const headers = lines[0].split("\t").map(h => h.trim());
+
+  return lines.slice(1).filter(line => line.trim()).map(line => {
+    const values = line.split("\t");
+    const row = {};
+    headers.forEach((header, i) => {
+      row[header] = (values[i] ?? "").trim();
+    });
+    return row;
+  });
+}
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
+}
+
+function findColumn(rows, pattern) {
+  if (!rows.length) return null;
+  return Object.keys(rows[0]).find(key => pattern.test(key)) || null;
+}
+
+function renderTable(elementId, rows, filter = "") {
+  const element = document.getElementById(elementId);
+
+  if (!rows.length) {
+    element.innerHTML = '<div class="empty">No results found in this report file.</div>';
+    return;
+  }
+
+  const headers = Object.keys(rows[0]);
+  const term = filter.toLowerCase();
+
+  const filtered = rows.filter(row =>
+    Object.values(row).join(" ").toLowerCase().includes(term)
+  );
+
+  if (!filtered.length) {
+    element.innerHTML = '<div class="empty">No matching rows.</div>';
+    return;
+  }
+
+  const headerHTML = headers.map(h => `<th>${escapeHTML(h)}</th>`).join("");
+
+  const bodyHTML = filtered.map(row => {
+    const cells = headers.map(header => {
+      const value = row[header] ?? "";
+
+      if (/status/i.test(header)) {
+        const status = String(value).toUpperCase();
+        if (["FAIL", "PASS", "MISSING", "UNASSESSABLE"].includes(status)) {
+          return `<td><span class="status ${status}">${escapeHTML(value)}</span></td>`;
+        }
+      }
+
+      return `<td>${escapeHTML(value)}</td>`;
+    }).join("");
+
+    return `<tr>${cells}</tr>`;
+  }).join("");
+
+  element.innerHTML = `
+    <table>
+      <thead><tr>${headerHTML}</tr></thead>
+      <tbody>${bodyHTML}</tbody>
+    </table>`;
+}
+
+function updateCards() {
+  const rows = data.genes;
+  const statusColumn = findColumn(rows, /^status$/i);
+
+  const failed = statusColumn
+    ? rows.filter(row => /^fail(ed)?$/i.test(row[statusColumn])).length
+    : 0;
+
+  const missing = statusColumn
+    ? rows.filter(row => /^(missing|unassessable)$/i.test(row[statusColumn])).length
+    : 0;
+
+  document.getElementById("genes").textContent = rows.length || "0";
+  document.getElementById("failed").textContent = failed;
+  document.getElementById("missing").textContent = missing;
+  document.getElementById("exons").textContent = data.exons.length;
+
+  const sampleMatch = data.summary.match(/Sample\s*[:=]\s*([^\s,;]+)/i);
+  document.getElementById("sample").textContent =
+    sampleMatch ? sampleMatch[1] : "NGS148_34";
+}
+
+async function loadFile(filename) {
+  const response = await fetch(filename);
+
+  if (!response.ok) {
+    throw new Error(`Could not load ${filename} (${response.status})`);
+  }
+
+  return response.text();
+}
+
+async function loadDashboard() {
+  try {
+    const [geneText, exonText, summaryText] = await Promise.all([
+      loadFile("gene_coverage_report.tsv"),
+      loadFile("failing_exons.tsv"),
+      loadFile("summary.txt")
+    ]);
+
+    data.genes = parseTSV(geneText);
+    data.exons = parseTSV(exonText);
+    data.summary = summaryText;
+
+    renderTable("geneTable", data.genes);
+    renderTable("exonTable", data.exons);
+
+    document.getElementById("summaryText").innerHTML =
+      `<pre>${escapeHTML(data.summary)}</pre>`;
+
+    updateCards();
+
+  } catch (error) {
+    document.getElementById("sample").textContent = "Error";
+    document.getElementById("summaryText").innerHTML =
+      `<div class="empty">${escapeHTML(error.message)}. Check that all three report files are in the docs folder.</div>`;
+  }
+}
+
+document.getElementById("geneSearch").addEventListener("input", event => {
+  renderTable("geneTable", data.genes, event.target.value);
+});
+
+document.getElementById("exonSearch").addEventListener("input", event => {
+  renderTable("exonTable", data.exons, event.target.value);
+});
+
+loadDashboard();
+</script>
+</body>
+</html>
